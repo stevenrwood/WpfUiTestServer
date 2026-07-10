@@ -46,8 +46,9 @@ jobs:
         with:
           user: stevenrwood # nuget.org username that owns the Trusted Publishing policy
       - name: Push to NuGet
-        run: >
-          dotnet nuget push artifacts/*.nupkg
-          -k ${{ steps.login.outputs.NUGET_API_KEY }}
-          -s https://api.nuget.org/v3/index.json
-          --skip-duplicate
+        shell: pwsh
+        run: |
+          $pkg = (Get-ChildItem artifacts/*.nupkg | Where-Object Extension -eq '.nupkg' | Select-Object -First 1).FullName
+          if (-not $pkg) { throw 'no .nupkg found in artifacts/' }
+          Write-Host "pushing $pkg"
+          dotnet nuget push $pkg -k ${{ steps.login.outputs.NUGET_API_KEY }} -s https://api.nuget.org/v3/index.json --skip-duplicate
