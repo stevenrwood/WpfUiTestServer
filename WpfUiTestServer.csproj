@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net462</TargetFramework>
+    <RootNamespace>WpfUiTestServer</RootNamespace>
+    <AssemblyName>WpfUiTestServer</AssemblyName>
+    <LangVersion>latest</LangVersion>
+    <!-- Keep the existing hand-written Properties/AssemblyInfo.cs. -->
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+
+    <!-- NuGet package metadata -->
+    <PackageId>WpfUiTestServer</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>stevenrwood</Authors>
+    <Description>Flag-gated, in-process HTTP server that drives a WPF UI by x:Uid via AutomationPeers, so a script can exercise and self-verify a change end to end instead of handing it to a human to click. App-agnostic (host supplies domain state via IUiTestStatusProvider), zero external dependencies, loopback-only.</Description>
+    <PackageTags>wpf;ui-automation;testing;e2e;automationpeer;automation</PackageTags>
+    <PackageLicenseExpression>BSD-3-Clause</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/stevenrwood/WpfUiTestServer</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/stevenrwood/WpfUiTestServer.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <!-- WPF + UI-automation framework assemblies (no XAML in this project, so no
+       UseWPF needed — these come from the .NET Framework 4.6.2 targeting pack). -->
+  <ItemGroup>
+    <Reference Include="System.Xaml" />
+    <Reference Include="WindowsBase" />
+    <Reference Include="PresentationCore" />
+    <Reference Include="PresentationFramework" />
+    <Reference Include="UIAutomationProvider" />
+    <Reference Include="UIAutomationTypes" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+</Project>

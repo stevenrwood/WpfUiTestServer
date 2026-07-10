@@ -1,0 +1,43 @@
+name: publish
+
+# Pack on every push/PR (build check); publish to NuGet only on a version tag.
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  pull_request:
+    branches: [master]
+
+jobs:
+  pack:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Pack
+        run: dotnet pack -c Release -o artifacts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nupkg
+          path: artifacts/*.*nupkg
+
+  publish:
+    needs: pack
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Pack
+        run: dotnet pack -c Release -o artifacts
+      - name: Push to NuGet
+        run: >
+          dotnet nuget push artifacts/*.nupkg
+          -k ${{ secrets.NUGET_API_KEY }}
+          -s https://api.nuget.org/v3/index.json
+          --skip-duplicate
+        # Add a NUGET_API_KEY repo secret (Settings → Secrets → Actions) first.
