@@ -10,7 +10,7 @@
 
     <!-- NuGet package metadata -->
     <PackageId>WpfUiTestServer</PackageId>
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <Authors>stevenrwood</Authors>
     <Description>Flag-gated, in-process HTTP server that drives a WPF UI by x:Uid via AutomationPeers, so a script can exercise and self-verify a change end to end instead of handing it to a human to click. App-agnostic (host supplies domain state via IUiTestStatusProvider), zero external dependencies, loopback-only.</Description>
     <PackageTags>wpf;ui-automation;testing;e2e;automationpeer;automation</PackageTags>

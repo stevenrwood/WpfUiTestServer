@@ -24,6 +24,7 @@
  *   GET  /state/{uid}      one element: uid, name, type, enabled, visible, value/text
  *   POST /invoke/{uid}     invoke the element (button click) via its Invoke automation pattern
  *   POST /set/{uid}?value= set the element's value: ValuePattern text, or Toggle for checkboxes/toggles
+ *   POST /handoff          release control to the operator: popup + banner down + server STOPS (no resume)
  *
  * KNOWN LIMITATION (the genuinely hard part per the design): only *realized* elements are visible to the
  * visual-tree walk. Content on a not-yet-selected TabItem is created lazily, so /tree won't list it until that
@@ -62,6 +63,7 @@ namespace WpfUiTestServer
         private static int _port;
         private static IUiTestStatusProvider _status;
         private static Action<string> _log = _ => { };
+        private static Border _banner;   // set by InstallBanner, cleared by RemoveBanner (see /handoff)
 
         public const int DefaultPort = 8760;
 
@@ -164,6 +166,7 @@ namespace WpfUiTestServer
                 };
                 DockPanel.SetDock(banner, Dock.Top);
                 dock.Children.Insert(0, banner);
+                _banner = banner;
 
                 var pulse = new System.Windows.Media.Animation.DoubleAnimation(1.0, 0.6,
                     new Duration(TimeSpan.FromSeconds(0.9)))
@@ -174,6 +177,98 @@ namespace WpfUiTestServer
                 banner.BeginAnimation(UIElement.OpacityProperty, pulse);
             }
             catch { /* the banner is cosmetic - never let it break server startup */ }
+        }
+
+        // Reverses InstallBanner - called by DoHandoff when control is released back to the operator.
+        private static void RemoveBanner()
+        {
+            try
+            {
+                if (_banner == null)
+                    return;
+                (_banner.Parent as DockPanel)?.Children.Remove(_banner);
+                _banner = null;
+            }
+            catch { /* cosmetic - never let it break handoff */ }
+        }
+
+        // ---- handoff: release control back to the operator -----------------------------------------------
+        // POST /handoff  (body = plain-text instructions to show the operator, may be empty/absent)
+        //
+        // For an agent that has been driving the UI unattended (e.g. setting up a test case) up to a point
+        // where a human needs to take over - a physical machine action, a judgment call, anything outside
+        // what the harness can do. Shows a non-modal popup with the given instructions (so the operator can
+        // read them at their own pace without being blocked from using the app), removes the "under
+        // test-server control" banner, and STOPS the server - closes the listener and lets AcceptLoop exit,
+        // so the app returns to completely normal manual operation with no automated input live.
+        //
+        // This is a real stop, not a pause: there is no resume-in-place. If automation is needed again later
+        // in the same process, call Start() again (the same idempotency guard that made a second Start() a
+        // no-op while running now lets a fresh Start() succeed, since _listener is null again).
+        public static string Handoff(string message)
+        {
+            if (_listener == null)
+                return Err("server not running");
+
+            string shown = string.IsNullOrEmpty(message) ? "Automated control has been released - you're in control now." : message;
+            _main.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                RemoveBanner();
+                ShowHandoffPopup(shown);
+            }));
+
+            Stop();
+
+            return "{\"ok\":true,\"handedOff\":true}";
+        }
+
+        // Closes the listener and lets AcceptLoop exit on its next (failing) AcceptTcpClient() call. Safe to
+        // call from a request handler thread - it only affects NEW connections; the current request's own
+        // stream is untouched, so its response (built by the caller before/after this call) still writes fine.
+        private static void Stop()
+        {
+            try { _listener?.Stop(); } catch { /* already stopped/disposed - fine */ }
+            _listener = null;
+            _thread = null;
+            _log("stopped - control released to operator");
+        }
+
+        // Non-modal so the operator has full, immediate control of the main window - reading the instructions
+        // must never block them from acting on them. Topmost + owned so it doesn't get lost behind the main
+        // window but still reflows/moves with it.
+        private static void ShowHandoffPopup(string message)
+        {
+            try
+            {
+                var win = new Window
+                {
+                    Title = "Automation handed off",
+                    SizeToContent = SizeToContent.WidthAndHeight,
+                    ResizeMode = ResizeMode.NoResize,
+                    WindowStyle = WindowStyle.ToolWindow,
+                    Topmost = true,
+                    ShowInTaskbar = false,
+                    Owner = _main,
+                    WindowStartupLocation = WindowStartupLocation.CenterOwner
+                };
+
+                var root = new StackPanel { Margin = new Thickness(16), MaxWidth = 480 };
+                root.Children.Add(new TextBlock
+                {
+                    Text = "Control released - automation has stopped.",
+                    FontWeight = FontWeights.Bold,
+                    Margin = new Thickness(0, 0, 0, 8)
+                });
+                root.Children.Add(new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap });
+
+                var ok = new Button { Content = "OK", MinWidth = 80, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 14, 0, 0) };
+                ok.Click += (s, e) => win.Close();
+                root.Children.Add(ok);
+
+                win.Content = root;
+                win.Show();   // non-modal
+            }
+            catch { /* best-effort, same as InstallBanner - a failed popup must not leave control un-released */ }
         }
 
         // ---- dialog broker: host-facing API --------------------------------------------------------------
@@ -555,6 +650,11 @@ namespace WpfUiTestServer
                 case "idle":
                     WaitForIdle();
                     return "{\"ok\":true,\"idle\":true}";
+
+                // POST /handoff  (body = plain-text instructions) - release control back to the operator: a
+                // popup shows the instructions, the banner comes down, and the server STOPS (see Handoff).
+                case "handoff":
+                    return Handoff(body);
 
                 case "status":
                     return OnDispatcher(BuildStatus);

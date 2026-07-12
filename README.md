@@ -124,6 +124,25 @@ When the server is running but nothing is armed and capture is off, `Prompt` ret
 real dialog (so interactive use is unaffected). A captured prompt that is never answered resolves to the host's
 supplied default after its timeout.
 
+### Handoff
+For an agent that has been driving the UI unattended up to a point where a human needs to take over - a
+physical machine action, a judgment call, anything outside what the harness can do.
+
+| Method & path | Purpose |
+|---|---|
+| `POST /handoff` (body = plain-text instructions, optional) | Release control: shows a non-modal popup with the instructions, removes the "under test-server control" banner, and **stops the server** |
+
+This is a real stop, not a pause — there is no resume-in-place. The listener closes and `AcceptLoop` exits;
+the app returns to completely normal manual operation with no automated input live. The popup is non-modal
+(`Window.Show()`, not a MessageBox) so the operator has full, immediate control of the app while reading it -
+it never blocks them from acting. If automation is needed again later in the same process, the host calls
+`UiTestServer.Start(...)` again (the same guard that made a second `Start()` a no-op while running now lets a
+fresh `Start()` succeed).
+
+```bash
+curl -s -X POST localhost:8760/handoff --data-raw "Jog to the corner and touch off Z manually, then run the probe from the Probing tab."
+```
+
 ---
 
 ## App exit
