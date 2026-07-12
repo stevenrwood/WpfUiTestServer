@@ -19,7 +19,7 @@
  *
  * Routes (all return JSON):
  *   GET  /ping             liveness -> {"ok":true,...}
- *   GET  /idle             block until the Dispatcher has drained to background priority, then ok
+ *   GET  /idle             block until layout/arrange is done AND an actual frame has been composited, then ok
  *   GET  /tree             every realized element that carries an x:Uid, across all open windows
  *   GET  /state/{uid}      one element: uid, name, type, enabled, visible, value/text
  *   POST /invoke/{uid}     invoke the element (button click) via its Invoke automation pattern
@@ -760,12 +760,31 @@ namespace WpfUiTestServer
             return sb.ToString();
         }
 
-        // Drain the Dispatcher queue down to Background priority - i.e. layout/render and queued app work have
-        // run. This is the seed of "has the UI settled after my action"; it does NOT know about async I/O such
-        // as an in-flight connection or a running job (that readback is future work).
+        // Drain the Dispatcher queue down to Background priority (layout/arrange run at Render priority -
+        // higher than Background - so they're guaranteed to have already happened), THEN wait for an actual
+        // composed frame. Those are two different things: WPF's pixel composition/present happens on a
+        // separate compositor thread that is NOT synchronized with the Dispatcher queue at all, so draining
+        // to Background proves layout ran, not that anything has actually been painted to the screen.
+        // CompositionTarget.Rendering fires once per frame the compositor actually renders - the real "has
+        // this painted" signal. Bounded wait: if nothing changed since the last frame there may be no new
+        // tick to wait for at all (the render loop only ticks when something is invalidated) - that's not an
+        // error, it just means the UI was already idle/painted, so hitting the timeout still reports success.
         private static void WaitForIdle()
         {
             _main.Dispatcher.Invoke(new System.Action(() => { }), DispatcherPriority.Background);
+
+            using (var frameRendered = new ManualResetEventSlim(false))
+            {
+                EventHandler onRendering = null;
+                onRendering = (s, e) =>
+                {
+                    CompositionTarget.Rendering -= onRendering;
+                    frameRendered.Set();
+                };
+                _main.Dispatcher.Invoke(new System.Action(() => { CompositionTarget.Rendering += onRendering; }));
+                if (!frameRendered.Wait(1000))
+                    _main.Dispatcher.Invoke(new System.Action(() => { CompositionTarget.Rendering -= onRendering; }));
+            }
         }
 
         // Block until a condition holds or a timeout elapses, POLLING from this background handler thread so the

@@ -93,7 +93,7 @@ Duplicate `x:Uid`s (a reused template) are disambiguated with `?index=N` (0-base
 ### Synchronization
 | Method & path | Purpose |
 |---|---|
-| `GET /idle` | Block until the Dispatcher drains to Background priority (layout/render done). Does **not** know about async I/O |
+| `GET /idle` | Block until the Dispatcher drains to Background priority (layout/arrange done) **and** an actual composed frame has rendered (bounded 1s wait - a no-op if nothing changed). Does **not** know about async I/O |
 | `GET /status` | Host/domain state map from the `IUiTestStatusProvider` |
 | `GET /waitfor?…` | Block until a condition holds or `timeout` (ms, default 5000) elapses; polls every `poll` ms (default 100). Returns `matched`+`elapsedMs`, or `timeout`+last observed value |
 | `GET /exceptions[?since=N][?clear=true]` | Unhandled exceptions the app fed via `RecordException`, plus any route-caught throw — newest first (`seq,when,source,type,message,stack`). `since` returns only `seq > N` (polling); `clear` empties the buffer |
