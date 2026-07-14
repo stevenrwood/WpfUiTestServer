@@ -86,6 +86,8 @@ Duplicate `x:Uid`s (a reused template) are disambiguated with `?index=N` (0-base
 |---|---|
 | `POST /invoke/{uid}?index=N` | Invoke (button), else Toggle, else Select (tab/list item) via the automation peer |
 | `POST /set/{uid}?value=V&index=N` | Set value: `ValuePattern` text, a checkbox/toggle bool, or a range number |
+| `POST /select/{uid}?itemIndex=N` | Select a `DataGrid` row / `ComboBox` / `ListBox` item by index — bypasses `AutomationPeer` (rows/items aren't realized as walkable peers until scrolled/dropped open) by setting `Selector.SelectedIndex` directly |
+| `POST /select/{uid}?text=T` | …or by display text (the `DisplayMemberPath` property value if set, else item `Content`/`ToString()`), case-insensitive |
 | `POST /key/{keyName}?uid=T` | Raise a key (real routed events) on target `T` (default = the window). **Plain keys only** — synthesized events can't set `Keyboard.Modifiers`, so Ctrl/Shift/Alt combos won't fire handlers. Use e.g. `F1`, `Escape`, `Up` |
 | `POST /menu/{uid}` | Open the element's context menu (fires its `Opened`, so dynamic submenus populate); returns the items (`uid,header,enabled,hasItems`) |
 | `POST /menu/{uid}?item=X` | …and invoke the menu item with uid `X` |

@@ -24,6 +24,7 @@
  *   GET  /state/{uid}      one element: uid, name, type, enabled, visible, value/text
  *   POST /invoke/{uid}     invoke the element (button click) via its Invoke automation pattern
  *   POST /set/{uid}?value= set the element's value: ValuePattern text, or Toggle for checkboxes/toggles
+ *   POST /select/{uid}?itemIndex=N | ?text=   select a DataGrid row / ComboBox / ListBox item - see DoSelect
  *   POST /handoff          release control to the operator: popup + banner down + server STOPS (no resume)
  *
  * KNOWN LIMITATION (the genuinely hard part per the design): only *realized* elements are visible to the
@@ -45,6 +46,7 @@ using System.Windows.Automation;
 using System.Windows.Automation.Peers;
 using System.Windows.Automation.Provider;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -708,6 +710,15 @@ namespace WpfUiTestServer
                     if (string.IsNullOrEmpty(arg)) { status = 400; return Err("set requires /set/{uid}?value=..."); }
                     return OnDispatcher(() => DoSet(arg, QueryValue(query, "value"), index));
 
+                // POST /select/{uid}?itemIndex=N | ?text=Foo   select a DataGrid row / ComboBox / ListBox item.
+                // Bypasses AutomationPeer entirely (DataGrid rows and ItemsSource-bound ComboBox items are
+                // virtualized/not realized as walkable peers - see DoSelect) by setting Selector.SelectedIndex
+                // directly on the resolved control, on the Dispatcher thread, which raises the real
+                // SelectionChanged event so app handlers fire normally.
+                case "select":
+                    if (string.IsNullOrEmpty(arg)) { status = 400; return Err("select requires /select/{uid}?itemIndex=N or ?text=..."); }
+                    return OnDispatcher(() => DoSelect(arg, query, index));
+
                 default:
                     status = 404;
                     return Err("unknown route: /" + head);
@@ -1026,6 +1037,9 @@ namespace WpfUiTestServer
             if (el is System.Windows.Controls.TextBox tb) return tb.Text;
             if (el is TextBlock tblk) return tblk.Text;                    // status/DRO/banner labels
             if (el is System.Windows.Controls.ContentControl cc && cc.Content is string s) return s;
+            // Non-editable ComboBox/DataGrid/ListBox expose no Value/Toggle/RangeValue pattern - report the
+            // current selection instead (see DoSelect for how it's set).
+            if (el is Selector sel) return ItemDisplayText(sel, sel.SelectedItem) ?? sel.SelectedIndex.ToString(CultureInfo.InvariantCulture);
             return null;
         }
 
@@ -1102,6 +1116,62 @@ namespace WpfUiTestServer
                 return "{\"ok\":true,\"set\":" + Str(uid) + ",\"value\":" + rp.Value.ToString(CultureInfo.InvariantCulture) + "}";
             }
             return Err("element does not support Value/Toggle/Range: " + uid + " (" + el.GetType().Name + ")");
+        }
+
+        // DataGrid and ComboBox (and ListBox) both derive from Selector, but their items are never realized as
+        // individually walkable AutomationPeers unless actually scrolled/dropped open on screen (virtualization)
+        // - so /invoke and /set on a row or item fail with "does not support Invoke/Toggle/Select". This bypasses
+        // AutomationPeer entirely: resolve the control itself via FindByUid, then set Selector.SelectedIndex
+        // directly (a real property set on the Dispatcher thread), which raises SelectionChanged normally and
+        // works regardless of virtualization/realization state.
+        private static string DoSelect(string uid, string query, int uidIndex)
+        {
+            var raw = FindByUid(uid, uidIndex);
+            if (raw == null) return NotFound(uid);
+            var sel = raw as Selector;
+            if (sel == null) return Err("element is not a Selector (DataGrid/ComboBox/ListBox): " + uid + " (" + raw.GetType().Name + ")");
+            if (!sel.IsEnabled) return Err("element is disabled: " + uid);
+
+            string itemIndexStr = QueryValue(query, "itemIndex");
+            string text = QueryValue(query, "text");
+
+            if (itemIndexStr != null)
+            {
+                int itemIndex;
+                if (!int.TryParse(itemIndexStr, out itemIndex)) return Err("itemIndex is not a number: " + itemIndexStr);
+                if (itemIndex < 0 || itemIndex >= sel.Items.Count) return Err("itemIndex out of range 0.." + (sel.Items.Count - 1) + " for " + uid + " (" + sel.Items.Count + " items)");
+                sel.SelectedIndex = itemIndex;
+            }
+            else if (text != null)
+            {
+                int found = -1;
+                for (int i = 0; i < sel.Items.Count; i++)
+                    if (string.Equals(ItemDisplayText(sel, sel.Items[i]), text, StringComparison.OrdinalIgnoreCase)) { found = i; break; }
+                if (found < 0) return Err("no item matching text: " + text + " in " + uid);
+                sel.SelectedIndex = found;
+            }
+            else
+                return Err("select requires ?itemIndex=N or ?text=...");
+
+            return "{\"ok\":true,\"selected\":" + Str(uid) + ",\"selectedIndex\":" + sel.SelectedIndex +
+                   ",\"selectedText\":" + Str(ItemDisplayText(sel, sel.SelectedItem)) + "}";
+        }
+
+        // Best-effort display text for a Selector item: DisplayMemberPath's property value if the control sets
+        // one (typical ItemsSource-bound ComboBox/DataGrid), else the item's own Content (ComboBoxItem or other
+        // ContentControl - covers static XAML items), else plain ToString() (covers strings and POCOs with a
+        // sane override). Used both to match ?text= and to echo back what got selected.
+        private static string ItemDisplayText(Selector sel, object item)
+        {
+            if (item == null) return null;
+            string path = (sel as ItemsControl)?.DisplayMemberPath;
+            if (!string.IsNullOrEmpty(path))
+            {
+                var pi = item.GetType().GetProperty(path);
+                if (pi != null) return pi.GetValue(item, null)?.ToString();
+            }
+            if (item is ContentControl cc) return cc.Content?.ToString();
+            return item.ToString();
         }
 
         // Raise a key on the target as real routed events (Preview + bubble, down then up). Default target is the
